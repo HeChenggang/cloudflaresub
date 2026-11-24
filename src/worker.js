@@ -486,17 +486,11 @@ async function handleGenerate(request, env, url) {
 
   let id = await env.SUB_STORE.get(dedupKey);
 
-  if (!id) {
+  if (!id || !(await env.SUB_STORE.get(`sub:${id}`))) {
     id = await createUniqueShortId(env);
-    const ttl = 60 * 60 * 24 * 7; // 7天
-
-    await env.SUB_STORE.put(`sub:${id}`, JSON.stringify(payload), {
-      expirationTtl: ttl,
-    });
-
-    await env.SUB_STORE.put(dedupKey, id, {
-      expirationTtl: ttl,
-    });
+    payload.dedupKey = dedupKey;
+    await env.SUB_STORE.put(`sub:${id}`, JSON.stringify(payload));
+    await env.SUB_STORE.put(dedupKey, id);
   }
 
   const origin = url.origin;
@@ -573,9 +567,65 @@ async function handleSub(url, env) {
   return text(renderRaw(nodes), 200, 'text/plain; charset=utf-8');
 }
 
+function adminPage() {
+  return new Response(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>订阅管理</title>
+<style>body{font:16px/1.6 system-ui;max-width:60rem;margin:3rem auto;padding:0 1rem}button,input,select{font:inherit;margin:.25rem}li{padding:1rem 0;border-bottom:1px solid #ddd}</style>
+<h1>订阅管理</h1><form id="login"><label>管理员密钥 <input id="key" type="password" required></label><button>查看订阅</button></form>
+<p id="status" role="status"></p><ul id="list"></ul><button hidden id="more">加载更多</button>
+<script>
+const el=id=>document.getElementById(id);
+let cursor='';
+async function api(path,method='GET'){
+  const res=await fetch('/api/admin/subscriptions'+path,{method,headers:{Authorization:'Bearer '+el('key').value}});
+  if(!res.ok)throw Error(res.status===403?'管理员密钥无效或尚未配置':'请求失败 '+res.status);
+  return res.json();
+}
+function row(record){
+  const li=document.createElement('li');
+  li.append(record.id+' · '+record.createdAt+' · '+record.count+' 个节点 ');
+  const select=document.createElement('select');
+  for(const format of ['clash','raw','surge'])select.add(new Option(format,format));
+  li.append(select);
+  function button(label,action){const b=document.createElement('button');b.textContent=label;b.onclick=()=>action().catch(show);li.append(b)}
+  button('复制链接',async()=>{const url=new URL('/sub/'+record.id,location.origin);url.searchParams.set('target',select.value);if(record.token)url.searchParams.set('token',record.token);await navigator.clipboard.writeText(url.href);el('status').textContent='链接已复制'});
+  button('删除',async()=>{if(confirm('永久删除订阅 '+record.id+'？')){await api('/'+record.id,'DELETE');li.remove();el('status').textContent='订阅已删除'}});
+  el('list').append(li);
+}
+function show(e){el('status').textContent=e.message}
+async function load(){el('more').disabled=true;try{const data=await api('?cursor='+encodeURIComponent(cursor));data.records.forEach(row);cursor=data.cursor;el('more').hidden=!cursor;el('status').textContent='已列出 '+el('list').children.length+' 条订阅'}catch(e){show(e)}finally{el('more').disabled=false}}
+el('login').onsubmit=e=>{e.preventDefault();cursor='';el('list').replaceChildren();el('more').hidden=true;load()};el('more').onclick=load;
+</script></html>`, {headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer'}});
+}
+
+async function manageSubscriptions(request, url, env) {
+  const auth = request.headers.get('Authorization') || '';
+  if (!env.ADMIN_TOKEN || !auth.startsWith('Bearer ') ||
+      await sha256Hex(auth.slice(7)) !== await sha256Hex(env.ADMIN_TOKEN)) return text('Forbidden', 403);
+  const base = '/api/admin/subscriptions';
+  if (request.method === 'GET' && url.pathname === base) {
+    const page = await env.SUB_STORE.list({prefix:'sub:', limit:25, cursor:url.searchParams.get('cursor') || undefined});
+    const records = await Promise.all(page.keys.map(async ({name}) => {
+      const record = await env.SUB_STORE.get(name, 'json');
+      return record && {id:name.slice(4), createdAt:record.createdAt, count:record.nodes.length, token:env.SUB_ACCESS_TOKEN || ''};
+    }));
+    return Response.json({records:records.filter(Boolean), cursor:page.list_complete ? '' : page.cursor}, {headers:{'cache-control':'no-store'}});
+  }
+  const match = /^\/api\/admin\/subscriptions\/([a-zA-Z0-9]{10})$/.exec(url.pathname);
+  if (request.method === 'DELETE' && match) {
+    const key = 'sub:' + match[1];
+    const record = await env.SUB_STORE.get(key, 'json');
+    if (record?.dedupKey && await env.SUB_STORE.get(record.dedupKey) === match[1]) await env.SUB_STORE.delete(record.dedupKey);
+    await env.SUB_STORE.delete(key);
+    return Response.json({ok:true});
+  }
+  return text('Not found', 404);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (request.method === 'GET' && url.pathname === '/admin') return adminPage();
+    if (url.pathname.startsWith('/api/admin/')) return manageSubscriptions(request, url, env);
 
     if (request.method === 'OPTIONS') {
       return new Response(null, {

@@ -19,7 +19,7 @@
 - 支持 Base64 订阅文本自动展开
 - 支持 `host[:port][#remark]` 格式的优选地址
 - 结果写入 Workers KV，生成 `/sub/:id` 短链
-- 相同输入自动去重（7 天 TTL）
+- 相同输入自动去重，订阅永久保存，支持手动删除。
 - 支持 `SUB_ACCESS_TOKEN` 访问令牌保护
 - 支持导出：Raw（Base64）/ Clash（YAML）/ Surge（文本）
 
@@ -171,7 +171,7 @@ curl "https://<worker>/sub/<id>?target=clash&token=<SUB_ACCESS_TOKEN>"
 ## 注意事项
 
 - `src/worker.js` 当前是 KV 短链方案，不依赖 `SUB_LINK_SECRET`
-- 每条订阅记录默认保存 7 天（TTL）
+- 新建订阅和去重索引均不设置 TTL。管理员可在 `/admin` 分页查看订阅、复制不同客户端的链接或删除订阅。将独立的 `ADMIN_TOKEN` 配置为 Worker Secret 后即可登录。
 - Surge 导出当前仅包含 `vmess` / `trojan`
 
 ## License
