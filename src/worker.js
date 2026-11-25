@@ -1,3 +1,5 @@
+import { readRules, renderRules, rulesApi } from './clash-rules.js';
+
 // Cloudflare Worker: KV short link subscription + access token protection
 // Requires:
 // - KV namespace binding: SUB_STORE
@@ -215,7 +217,7 @@ function renderRaw(nodes) {
   return b64EncodeUtf8(lines.join('\n'));
 }
 
-function renderClash(nodes) {
+function renderClash(nodes, config) {
   const proxies = nodes
     .map((node) => {
       if (node.type === 'vmess') {
@@ -350,28 +352,7 @@ function renderClash(nodes) {
     `    proxies:`,
     ...allGroupMembers,
     ``,
-    `rule-providers:`,
-    `  ChinaDomain:`,
-    `    type: http`,
-    `    behavior: domain`,
-    `    format: mrs`,
-    `    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/cn.mrs`,
-    `    path: ./ruleset/cn.mrs`,
-    `    interval: 86400`,
-    `  ChinaIP:`,
-    `    type: http`,
-    `    behavior: ipcidr`,
-    `    format: mrs`,
-    `    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/cn.mrs`,
-    `    path: ./ruleset/cn-ip.mrs`,
-    `    interval: 86400`,
-    ``,
-    `rules:`,
-    `  - GEOSITE,private,DIRECT`,
-    `  - GEOIP,LAN,DIRECT,no-resolve`,
-    `  - RULE-SET,ChinaDomain,DIRECT`,
-    `  - RULE-SET,ChinaIP,DIRECT,no-resolve`,
-    `  - MATCH,节点选择`,
+    renderRules(config),
   ].join('\n');
 }
 
@@ -555,7 +536,7 @@ async function handleSub(url, env) {
   const target = (url.searchParams.get('target') || 'raw').toLowerCase();
 
   if (target === 'clash') {
-    return text(renderClash(nodes), 200, 'text/yaml; charset=utf-8');
+    return text(renderClash(nodes, await readRules(env.SUB_STORE)), 200, 'text/yaml; charset=utf-8');
   }
   if (target === 'surge') {
     return text(
@@ -570,7 +551,7 @@ async function handleSub(url, env) {
 function adminPage() {
   return new Response(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>订阅管理</title>
 <style>body{font:16px/1.6 system-ui;max-width:60rem;margin:3rem auto;padding:0 1rem}button,input,select{font:inherit;margin:.25rem}li{padding:1rem 0;border-bottom:1px solid #ddd}</style>
-<h1>订阅管理</h1><form id="login"><label>管理员密钥 <input id="key" type="password" required></label><button>查看订阅</button></form>
+<a href="/admin/rules">订阅规则管理</a><h1>订阅管理</h1><form id="login"><label>管理员密钥 <input id="key" type="password" required></label><button>查看订阅</button></form>
 <p id="status" role="status"></p><ul id="list"></ul><button hidden id="more">加载更多</button>
 <script>
 const el=id=>document.getElementById(id);
@@ -601,6 +582,7 @@ async function manageSubscriptions(request, url, env) {
   const auth = request.headers.get('Authorization') || '';
   if (!env.ADMIN_TOKEN || !auth.startsWith('Bearer ') ||
       await sha256Hex(auth.slice(7)) !== await sha256Hex(env.ADMIN_TOKEN)) return text('Forbidden', 403);
+  if (url.pathname === '/api/admin/rules') return rulesApi(request, env.SUB_STORE);
   const base = '/api/admin/subscriptions';
   if (request.method === 'GET' && url.pathname === base) {
     const page = await env.SUB_STORE.list({prefix:'sub:', limit:25, cursor:url.searchParams.get('cursor') || undefined});

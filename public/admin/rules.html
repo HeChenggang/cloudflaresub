@@ -1,0 +1,32 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>订阅规则管理</title>
+<style>*{box-sizing:border-box}body{font:16px/1.6 system-ui;margin:2rem auto;max-width:64rem;padding:0 1rem;color:#172b36}label{display:block;font-weight:600;margin-top:1rem}textarea,pre{width:100%;padding:.75rem;font:14px/1.6 monospace;border:1px solid #a6b6bf;border-radius:6px}pre{overflow:auto;background:#f4f7f8}button,input{font:inherit;padding:.4rem .7rem;margin:.25rem 0}button{cursor:pointer}fieldset{border:0;padding:0}summary{cursor:pointer}p{margin:.4rem 0}</style>
+<a href="/admin">返回订阅管理</a><h1>订阅规则管理</h1><p>保存后，所有 Clash 订阅在下次刷新时使用这组规则。</p>
+<form id="login"><label for="key">管理员密钥</label><input id="key" type="password" required> <button>加载配置</button></form>
+<p id="status" role="status"></p><fieldset id="editor" disabled>
+<label for="providers">远程规则集</label><p>每行依次填写名称、类型（domain / ipcidr / classical）、格式（mrs / yaml / text）和 HTTPS 地址，以空格分隔。更新间隔为 24 小时。</p>
+<textarea id="providers" rows="4" spellcheck="false"></textarea>
+<label for="rules">分流规则</label><p>按从上到下的顺序匹配。例如 DOMAIN-SUFFIX,example.com,DIRECT。最后一行使用 MATCH 指定默认策略。</p>
+<textarea id="rules" rows="9" spellcheck="false"></textarea>
+<button id="preview">预览 YAML</button> <button id="save">保存规则</button> <button id="reset">恢复默认规则</button>
+</fieldset><details id="details"><summary>订阅 YAML 预览</summary><pre id="yaml"></pre></details>
+<script>
+const el=id=>document.getElementById(id);
+async function run(method){
+  el('editor').disabled=true;
+  try{
+    const lines=id=>el(id).value.split(/\r?\n/).map(v=>v.trim()).filter(Boolean);
+    const edit=['POST','PUT'].includes(method);
+    const response=await fetch('/api/admin/rules',{method,headers:{Authorization:'Bearer '+el('key').value,'Content-Type':'application/json'},body:edit?JSON.stringify({providers:lines('providers'),rules:lines('rules')}):undefined});
+    if(!response.ok)throw Error(response.status===403?'管理员密钥无效':await response.text());
+    const data=await response.json();
+    for(const id of ['providers','rules'])el(id).value=data[id].join('\n');
+    el('yaml').textContent=data.preview;el('details').open=method==='POST';
+    el('status').textContent={GET:'已加载当前配置',POST:'预览已更新，尚未保存',PUT:'已保存规则',DELETE:'已恢复默认规则'}[method];
+    el('editor').disabled=false;
+  }catch(e){el('status').textContent=e.message;el('editor').disabled=method==='GET'}
+}
+el('login').onsubmit=e=>{e.preventDefault();run('GET')};
+el('preview').onclick=()=>run('POST');
+el('save').onclick=()=>run('PUT');
+el('reset').onclick=()=>{if(confirm('恢复所有 Clash 订阅的默认规则？'))run('DELETE')};
+</script></html>
