@@ -556,8 +556,8 @@ function adminPage() {
 <script>
 const el=id=>document.getElementById(id);
 let cursor='';
-async function api(path,method='GET'){
-  const res=await fetch('/api/admin/subscriptions'+path,{method,headers:{Authorization:'Bearer '+el('key').value}});
+async function api(path,method='GET',body){
+  const res=await fetch('/api/admin/subscriptions'+path,{method,headers:{Authorization:'Bearer '+el('key').value,'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(!res.ok)throw Error(res.status===403?'管理员密钥无效或尚未配置':'请求失败 '+res.status);
   return res.json();
 }
@@ -570,6 +570,22 @@ function row(record){
   function button(label,action){const b=document.createElement('button');b.textContent=label;b.onclick=()=>action().catch(show);li.append(b)}
   button('复制链接',async()=>{const url=new URL('/sub/'+record.id,location.origin);url.searchParams.set('target',select.value);if(record.token)url.searchParams.set('token',record.token);await navigator.clipboard.writeText(url.href);el('status').textContent='链接已复制'});
   button('删除',async()=>{if(confirm('永久删除订阅 '+record.id+'？')){await api('/'+record.id,'DELETE');li.remove();el('status').textContent='订阅已删除'}});
+  li.append(document.createElement('br'));
+  const label=document.createElement('label');
+  const note=document.createElement('input');
+  note.maxLength=200;
+  note.value=record.note || '';
+  label.append('备注 ',note);
+  li.append(label);
+  button('保存备注',async()=>{
+    if(note.disabled)return;
+    note.disabled=true;
+    try {
+      const saved=await api('/'+record.id,'PATCH',{note:note.value});
+      note.value=saved.note;
+      el('status').textContent=record.id+(saved.note?' 备注已保存':' 备注已清空');
+    } finally {note.disabled=false}
+  });
   el('list').append(li);
 }
 function show(e){el('status').textContent=e.message}
@@ -588,16 +604,28 @@ async function manageSubscriptions(request, url, env) {
     const page = await env.SUB_STORE.list({prefix:'sub:', limit:25, cursor:url.searchParams.get('cursor') || undefined});
     const records = await Promise.all(page.keys.map(async ({name}) => {
       const record = await env.SUB_STORE.get(name, 'json');
-      return record && {id:name.slice(4), createdAt:record.createdAt, count:record.nodes.length, token:env.SUB_ACCESS_TOKEN || ''};
+      const id = name.slice(4);
+      return record && {id, note:await env.SUB_STORE.get('note:' + id) || '', createdAt:record.createdAt, count:record.nodes.length, token:env.SUB_ACCESS_TOKEN || ''};
     }));
     return Response.json({records:records.filter(Boolean), cursor:page.list_complete ? '' : page.cursor}, {headers:{'cache-control':'no-store'}});
   }
   const match = /^\/api\/admin\/subscriptions\/([a-zA-Z0-9]{10})$/.exec(url.pathname);
+  if (request.method === 'PATCH' && match) {
+    const body = await request.json().catch(() => null);
+    if (typeof body?.note !== 'string' || body.note.length > 200) return text('备注最多 200 字符', 400);
+    const id = match[1];
+    if (!await env.SUB_STORE.get('sub:' + id)) return text('订阅不存在', 404);
+    const note = body.note.trim();
+    if (note) await env.SUB_STORE.put('note:' + id, note);
+    else await env.SUB_STORE.delete('note:' + id);
+    return Response.json({note});
+  }
   if (request.method === 'DELETE' && match) {
     const key = 'sub:' + match[1];
     const record = await env.SUB_STORE.get(key, 'json');
     if (record?.dedupKey && await env.SUB_STORE.get(record.dedupKey) === match[1]) await env.SUB_STORE.delete(record.dedupKey);
     await env.SUB_STORE.delete(key);
+    await env.SUB_STORE.delete('note:' + match[1]);
     return Response.json({ok:true});
   }
   return text('Not found', 404);
