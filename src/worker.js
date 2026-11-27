@@ -467,7 +467,8 @@ async function handleGenerate(request, env, url) {
 
   let id = await env.SUB_STORE.get(dedupKey);
 
-  if (!id || !(await env.SUB_STORE.get(`sub:${id}`))) {
+  const existing = id && await env.SUB_STORE.get(`sub:${id}`, 'json');
+  if (!existing || existing.nodesEdited) {
     id = await createUniqueShortId(env);
     payload.dedupKey = dedupKey;
     await env.SUB_STORE.put(`sub:${id}`, JSON.stringify(payload));
@@ -562,7 +563,7 @@ const el=id=>document.getElementById(id);
 let cursor='';
 async function api(path,method='GET',body){
   const res=await fetch('/api/admin/subscriptions'+path,{method,headers:{Authorization:'Bearer '+el('key').value,'Content-Type':'application/json'},body:JSON.stringify(body)});
-  if(!res.ok)throw Error(res.status===403?'管理员密钥无效或尚未配置':'请求失败 '+res.status);
+  if(!res.ok)throw Error(res.status===403?'管理员密钥无效或尚未配置':await res.text() || '请求失败 '+res.status);
   return res.json();
 }
 function row(record){
@@ -597,6 +598,54 @@ function row(record){
   note.value=record.note || '';
   label.append('备注 ',note);
   notes.append(label);
+  const editor=document.createElement('div');
+  editor.className='endpoint-editor';
+  editor.hidden=true;
+  li.append(editor);
+  let opened=false;
+  button('编辑优选节点',async()=>{
+    if(opened)return;
+    opened=true;
+    try {
+      const data=await api('/'+record.id+'/nodes');
+      editor.replaceChildren();
+      editor.hidden=false;
+      const rows=document.createElement('div');
+      editor.append(rows);
+      const entries=new Map();
+      function add(node){
+        const line=document.createElement('div');
+        line.className='endpoint-row';
+        const fields={};
+        for(const [field,title] of [['name','节点名称'],['server','地址'],['port','端口']]){
+          const label=document.createElement('label');
+          const input=document.createElement('input');
+          input.value=node[field];
+          label.append(title,input);
+          line.append(label);
+          fields[field]=input;
+        }
+        function value(){return {source:node.source,name:fields.name.value,server:fields.server.value,port:Number(fields.port.value)}}
+        entries.set(line,value);
+        button('复制节点',async()=>add(value()),line);
+        button('移除',async()=>{if(entries.size===1)throw Error('请至少保留一个节点');entries.delete(line);line.remove()},line);
+        rows.append(line);
+      }
+      data.nodes.forEach(add);
+      function close(){editor.hidden=true;opened=false}
+      button('保存节点',async()=>{
+        if(editor.inert)return;
+        editor.inert=true;
+        try {
+          const result=await api('/'+record.id+'/nodes','PUT',{revision:data.revision,nodes:Array.from(entries.values(),read=>read())});
+          count.textContent=result.count+' 个节点';
+          close();
+          el('status').textContent='优选节点已保存，客户端刷新原订阅即可。';
+        } finally {editor.inert=false}
+      },editor);
+      button('取消',async()=>close(),editor);
+    } catch(e){opened=false;throw e}
+  });
   button('保存备注',async()=>{
     if(note.disabled)return;
     note.disabled=true;
@@ -614,12 +663,45 @@ el('login').onsubmit=e=>{e.preventDefault();cursor='';el('list').replaceChildren
 </script></html>`, {headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer'}});
 }
 
+async function manageNodes(request, store, id) {
+  const key = 'sub:' + id;
+  const raw = await store.get(key);
+  if (!raw) return text('订阅不存在', 404);
+  const record = JSON.parse(raw);
+  const revision = await sha256Hex(raw);
+  if (request.method === 'GET') {
+    const nodes = record.nodes.map(({name, server, port}, source) => ({source, name, server, port}));
+    return Response.json({revision, nodes}, {headers:{'cache-control':'no-store'}});
+  }
+  if (request.method !== 'PUT') return text('Method not allowed', 405);
+  const body = await request.json().catch(() => null);
+  if (body?.revision !== revision) return text('订阅已更新，请取消并重新打开编辑器', 409);
+  if (!Array.isArray(body.nodes) || !body.nodes.length) return text('请至少保留一个节点', 400);
+  const nodes = [];
+  for (const item of body.nodes) {
+    const template = record.nodes[item?.source];
+    if (!Number.isInteger(item?.source) || !template || typeof item.name !== 'string' ||
+        !item.name.trim() || /[\x00-\x1f\x7f]/.test(item.name) || typeof item.server !== 'string' ||
+        !/^(?:[a-zA-Z0-9.-]+|\[[a-fA-F0-9:.]+\])$/.test(item.server) ||
+        !Number.isInteger(item.port) || item.port < 1 || item.port > 65535) {
+      return text('请检查节点名称、IP 或域名，以及端口（1–65535）', 400);
+    }
+    try { new URL('http://' + item.server + ':' + item.port); }
+    catch { return text('节点地址格式无效', 400); }
+    nodes.push({...template, name:item.name.trim(), server:item.server, port:item.port});
+  }
+  await store.put(key, JSON.stringify({...record, nodes, nodesEdited:true}));
+  return Response.json({count:nodes.length});
+}
+
 async function manageSubscriptions(request, url, env) {
   const auth = request.headers.get('Authorization') || '';
   if (!env.ADMIN_TOKEN || !auth.startsWith('Bearer ') ||
       await sha256Hex(auth.slice(7)) !== await sha256Hex(env.ADMIN_TOKEN)) return text('Forbidden', 403);
   if (url.pathname === '/api/admin/rules') return rulesApi(request, env.SUB_STORE);
   const base = '/api/admin/subscriptions';
+  const nodePath = /^\/api\/admin\/subscriptions\/([a-zA-Z0-9]{10})\/nodes$/.exec(url.pathname);
+  if (nodePath) return manageNodes(request, env.SUB_STORE, nodePath[1]);
   if (request.method === 'GET' && url.pathname === base) {
     const page = await env.SUB_STORE.list({prefix:'sub:', limit:25, cursor:url.searchParams.get('cursor') || undefined});
     const records = await Promise.all(page.keys.map(async ({name}) => {

@@ -26,4 +26,10 @@ time{display:block;color:var(--muted);font-size:13px;margin:4px 0 16px}
 .actions .delete{margin-left:auto;color:#933d39;border-color:transparent}.delete:hover{background:#fff0ed}
 .notes{border-top:1px solid #e1e9e5;margin-top:16px;padding-top:16px}.notes label{flex:1;display:flex;align-items:center;gap:10px}.notes input{flex:1}.notes button{color:var(--accent)}
 #more{margin-top:16px}
+.endpoint-editor{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
+.endpoint-row{display:grid;grid-template-columns:2fr 2fr minmax(72px,1fr);gap:8px;margin-bottom:14px;padding:12px;background:#f4f7f5;border-radius:8px}
+.endpoint-row label{min-width:0;font-size:13px}
+.endpoint-row input{display:block;margin-top:4px}
+.endpoint-editor>button{margin-right:8px}
+@media(max-width:620px){.endpoint-row{grid-template-columns:1fr 1fr}.endpoint-row label:first-child{grid-column:1/-1}}
 @media(max-width:740px){.layout{grid-template-columns:1fr}nav,main{width:calc(100% - 32px)}form,li{padding:16px}main{padding-top:30px}.notes label{min-width:135px}.actions{gap:5px}}
