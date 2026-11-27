@@ -550,9 +550,13 @@ async function handleSub(url, env) {
 
 function adminPage() {
   return new Response(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>订阅管理</title>
-<style>body{font:16px/1.6 system-ui;max-width:60rem;margin:3rem auto;padding:0 1rem}button,input,select{font:inherit;margin:.25rem}li{padding:1rem 0;border-bottom:1px solid #ddd}</style>
-<a href="/admin/rules">订阅规则管理</a><h1>订阅管理</h1><form id="login"><label>管理员密钥 <input id="key" type="password" required></label><button>查看订阅</button></form>
-<p id="status" role="status"></p><ul id="list"></ul><button hidden id="more">加载更多</button>
+<link rel="stylesheet" href="/admin/subscriptions.css">
+<header><nav aria-label="管理导航"><span class="mark" aria-hidden="true"></span><span class="brand">CloudflareSub</span><a href="/admin/rules">订阅规则管理 ↗</a></nav></header>
+<main><h1>订阅管理</h1><div class="layout">
+<form id="login"><label for="key">管理员密钥</label><input id="key" type="password" autocomplete="current-password" required><button>查看订阅</button></form>
+<section aria-labelledby="subscriptions"><h2 id="subscriptions">订阅列表</h2><p id="status" role="status"></p>
+<div id="empty" class="empty">输入管理员密钥后即可查看订阅。</div>
+<ul id="list"></ul><button hidden id="more">加载更多</button></section></div></main>
 <script>
 const el=id=>document.getElementById(id);
 let cursor='';
@@ -563,20 +567,36 @@ async function api(path,method='GET',body){
 }
 function row(record){
   const li=document.createElement('li');
-  li.append(record.id+' · '+record.createdAt+' · '+record.count+' 个节点 ');
+  const identity=document.createElement('div');
+  identity.className='identity';
+  const id=document.createElement('strong');
+  id.textContent=record.id;
+  const count=document.createElement('span');
+  count.className='count';
+  count.textContent=record.count+' 个节点';
+  identity.append(id,count);
+  const time=document.createElement('time');
+  const date=new Date(record.createdAt);
+  time.textContent=Number.isNaN(date.getTime())?'':'创建于 '+date.toLocaleString('zh-CN',{hour12:false});
+  const actions=document.createElement('div');
+  actions.className='actions';
+  li.append(identity,time,actions);
   const select=document.createElement('select');
   for(const format of ['clash','raw','surge'])select.add(new Option(format,format));
-  li.append(select);
-  function button(label,action){const b=document.createElement('button');b.textContent=label;b.onclick=()=>action().catch(show);li.append(b)}
+  select.setAttribute('aria-label','订阅格式');
+  actions.append(select);
+  function button(label,action,parent=actions){const b=document.createElement('button');b.textContent=label;b.onclick=()=>action().catch(show);if(label==='删除')b.className='delete';parent.append(b)}
   button('复制链接',async()=>{const url=new URL('/sub/'+record.id,location.origin);url.searchParams.set('target',select.value);if(record.token)url.searchParams.set('token',record.token);await navigator.clipboard.writeText(url.href);el('status').textContent='链接已复制'});
   button('删除',async()=>{if(confirm('永久删除订阅 '+record.id+'？')){await api('/'+record.id,'DELETE');li.remove();el('status').textContent='订阅已删除'}});
-  li.append(document.createElement('br'));
+  const notes=document.createElement('div');
+  notes.className='notes';
+  li.append(notes);
   const label=document.createElement('label');
   const note=document.createElement('input');
   note.maxLength=200;
   note.value=record.note || '';
   label.append('备注 ',note);
-  li.append(label);
+  notes.append(label);
   button('保存备注',async()=>{
     if(note.disabled)return;
     note.disabled=true;
@@ -585,11 +605,11 @@ function row(record){
       note.value=saved.note;
       el('status').textContent=record.id+(saved.note?' 备注已保存':' 备注已清空');
     } finally {note.disabled=false}
-  });
+  },notes);
   el('list').append(li);
 }
 function show(e){el('status').textContent=e.message}
-async function load(){el('more').disabled=true;try{const data=await api('?cursor='+encodeURIComponent(cursor));data.records.forEach(row);cursor=data.cursor;el('more').hidden=!cursor;el('status').textContent='已列出 '+el('list').children.length+' 条订阅'}catch(e){show(e)}finally{el('more').disabled=false}}
+async function load(){el('login').querySelector('button').disabled=true;el('more').disabled=true;try{el('status').textContent='正在加载…';const data=await api('?cursor='+encodeURIComponent(cursor));el('empty').hidden=true;data.records.forEach(row);cursor=data.cursor;el('more').hidden=!cursor;el('status').textContent='已列出 '+el('list').children.length+' 条订阅'}catch(e){show(e)}finally{el('more').disabled=false;el('login').querySelector('button').disabled=false}}
 el('login').onsubmit=e=>{e.preventDefault();cursor='';el('list').replaceChildren();el('more').hidden=true;load()};el('more').onclick=load;
 </script></html>`, {headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer'}});
 }

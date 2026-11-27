@@ -1,0 +1,29 @@
+:root{color-scheme:light;--ink:#162e34;--muted:#536b70;--line:#cedbd8;--accent:#096d59}
+*{box-sizing:border-box}
+body{margin:0;background:#f4f7f5;color:var(--ink);font:15px/1.6 Inter,"Microsoft YaHei",system-ui,sans-serif}
+header{background:#153637;color:white}
+nav,main{width:min(1080px,calc(100% - 48px));margin:auto}
+nav{min-height:66px;display:flex;align-items:center;gap:12px}
+.brand{font:700 20px/1.2 Inter,system-ui;letter-spacing:-.6px}
+.mark{width:28px;height:28px;border:2px solid #86d2bb;border-radius:8px;display:grid;place-items:center;transform:rotate(-8deg)}
+.mark:after{content:"";width:10px;height:10px;border:2px solid #86d2bb;border-radius:3px}
+nav a{margin-left:auto;color:#e4f6ee;text-decoration:none;padding:8px 0}nav a:hover{text-decoration:underline}
+main{padding:clamp(28px,5vw,68px) 0 64px}
+h1{font-size:clamp(30px,4vw,44px);letter-spacing:-.045em;margin:0 0 28px;line-height:1.2}
+.layout{display:grid;grid-template-columns:minmax(215px,280px) minmax(0,1fr);gap:24px;align-items:start}
+form,li,.empty{border:1px solid var(--line);background:white;border-radius:14px}
+form{padding:24px}label{font-weight:600}input,select,button{font:inherit;color:inherit;min-height:42px;border:1px solid #b8cbc5;background:white;border-radius:8px;padding:8px 12px}
+input{min-width:0;width:100%}form input{margin:10px 0 14px}
+button{cursor:pointer;font-weight:600}button:hover{background:#eff6f2;border-color:#84a69b}
+button:disabled{opacity:.6;cursor:wait}form button{width:100%;background:var(--accent);color:white;border-color:var(--accent)}form button:hover{background:#075744}
+:focus-visible{outline:3px solid #2a947f;outline-offset:3px}
+h2{font-size:21px;margin:0}#status{margin:6px 0 16px;color:var(--muted);overflow-wrap:anywhere}
+.empty{padding:32px;text-align:center;color:var(--muted);border-style:dashed}
+ul{display:grid;gap:14px;list-style:none;margin:0;padding:0}
+li{padding:20px}.identity,.actions,.notes{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.identity{justify-content:space-between}.identity strong{font:600 19px/1.4 "IBM Plex Mono",Consolas,monospace;letter-spacing:.035em}.count{color:#17614f;background:#e5f4ed;border-radius:6px;padding:2px 8px;font-size:13px}
+time{display:block;color:var(--muted);font-size:13px;margin:4px 0 16px}
+.actions .delete{margin-left:auto;color:#933d39;border-color:transparent}.delete:hover{background:#fff0ed}
+.notes{border-top:1px solid #e1e9e5;margin-top:16px;padding-top:16px}.notes label{flex:1;display:flex;align-items:center;gap:10px}.notes input{flex:1}.notes button{color:var(--accent)}
+#more{margin-top:16px}
+@media(max-width:740px){.layout{grid-template-columns:1fr}nav,main{width:calc(100% - 32px)}form,li{padding:16px}main{padding-top:30px}.notes label{min-width:135px}.actions{gap:5px}}
